@@ -20,15 +20,21 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 });
 
 const db = client.db(process.env.DB_NAME || 'salonBookDB');
-const usersCollection = db.collection('users');
+app.locals.db = db;
+
+const usersCollection = db.collection('user'); // Better Auth 'user' collection
 const servicesCollection = db.collection('services');
 const appointmentsCollection = db.collection('appointments');
 const transactionsCollection = db.collection('transactions');
+const reviewsCollection = db.collection('reviews');
 
-const { verifyToken, verifyAdmin, verifyCustomer } = createAuthMiddlewares(usersCollection);
+const { verifyToken, verifyAdmin, verifyCustomer } = createAuthMiddlewares(
+  usersCollection,
+  db
+);
 
 // ==========================================
-// 0. INITIAL DATA SEEDING (6+ Active Services)
+// 0. INITIAL DATA SEEDING (7 Active Services)
 // ==========================================
 async function seedInitialServices() {
   try {
@@ -38,70 +44,84 @@ async function seedInitialServices() {
         {
           serviceName: 'Signature Haircut & Blowout',
           category: 'Haircut & Styling',
-          description: 'Precision haircut tailored to your face shape followed by a nourishing wash and voluminous blowout.',
+          description:
+            'Precision haircut tailored to your face shape followed by a nourishing wash and voluminous blowout.',
           price: 45,
           duration: 60,
-          image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800',
+          image:
+            'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800',
           status: 'active',
           createdAt: new Date(),
         },
         {
           serviceName: 'Balayage & Gloss Coloring',
           category: 'Hair Coloring',
-          description: 'Hand-painted natural highlights blended seamlessly with a shine-enhancing gloss treatment.',
+          description:
+            'Hand-painted natural highlights blended seamlessly with a shine-enhancing gloss treatment.',
           price: 140,
           duration: 150,
-          image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800',
+          image:
+            'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800',
           status: 'active',
           createdAt: new Date(),
         },
         {
           serviceName: 'Keratin Smooth Therapy',
           category: 'Hair Treatment',
-          description: 'Deep frizz-control keratin infusion that restores smoothness and manageability for up to 12 weeks.',
+          description:
+            'Deep frizz-control keratin infusion that restores smoothness and manageability for up to 12 weeks.',
           price: 120,
           duration: 120,
-          image: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800',
+          image:
+            'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800',
           status: 'active',
           createdAt: new Date(),
         },
         {
           serviceName: 'Hydra-Glow Botanical Facial',
           category: 'Facial & Skincare',
-          description: 'Deep pore cleansing, gentle enzyme exfoliation, and hyaluronic hydration mask for radiant skin.',
+          description:
+            'Deep pore cleansing, gentle enzyme exfoliation, and hyaluronic hydration mask for radiant skin.',
           price: 75,
           duration: 60,
-          image: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800',
+          image:
+            'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800',
           status: 'active',
           createdAt: new Date(),
         },
         {
           serviceName: 'Bridal & Evening Glam Makeup',
           category: 'Makeup',
-          description: 'Long-wear HD airbrush or soft-glam makeup application with custom lash styling.',
+          description:
+            'Long-wear HD airbrush or soft-glam makeup application with custom lash styling.',
           price: 95,
           duration: 90,
-          image: 'https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800',
+          image:
+            'https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=800',
           status: 'active',
           createdAt: new Date(),
         },
         {
           serviceName: 'Deluxe Gel Manicure & Spa Pedicure',
           category: 'Manicure & Pedicure',
-          description: 'Cuticle care, sea-salt scrub, relaxing massage, and chip-free gel polish finish.',
+          description:
+            'Cuticle care, sea-salt scrub, relaxing massage, and chip-free gel polish finish.',
           price: 65,
           duration: 75,
-          image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800',
+          image:
+            'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=800',
           status: 'active',
           createdAt: new Date(),
         },
         {
           serviceName: 'Aromatherapy Deep Tissue Massage',
           category: 'Spa & Massage',
-          description: 'Full-body tension relief massage using warm essential oils to soothe sore muscles.',
+          description:
+            'Full-body tension relief massage using warm essential oils to soothe sore muscles.',
           price: 85,
           duration: 60,
-          image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
+          image:
+            'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800',
           status: 'active',
           createdAt: new Date(),
         },
@@ -114,6 +134,24 @@ async function seedInitialServices() {
   }
 }
 seedInitialServices();
+
+const allowedOrigins = process.env.CLIENT_URL
+  ? process.env.CLIENT_URL.split(',').map((url) => url.trim())
+  : ['http://localhost:3000'];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true);
+      }
+    },
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-user-email'],
+  })
+);
 
 // ==========================================
 // 1. STRIPE WEBHOOK (MUST BE BEFORE express.json)
@@ -142,7 +180,7 @@ app.post(
 
       await appointmentsCollection.updateOne(
         { _id: new ObjectId(appointmentId) },
-        { $set: { paymentStatus: 'paid' } }
+        { $set: { status: 'confirmed', paymentStatus: 'paid' } }
       );
 
       const existingTx = await transactionsCollection.findOne({
@@ -169,15 +207,6 @@ app.post(
 // ==========================================
 // 2. STANDARD MIDDLEWARES
 // ==========================================
-app.use(
-  cors({
-    origin: [
-      'http://localhost:3000',
-      process.env.CLIENT_URL,
-    ].filter(Boolean),
-    credentials: true,
-  })
-);
 app.use(express.json());
 app.use(cookieParser());
 
@@ -211,7 +240,9 @@ app.post('/api/auth/jwt', async (req, res) => {
     }
 
     if (user.isBlocked) {
-      return res.status(403).send({ message: 'Your account has been blocked by admin.' });
+      return res
+        .status(403)
+        .send({ message: 'Your account has been blocked by admin.' });
     }
 
     const token = jwt.sign(
@@ -228,7 +259,9 @@ app.post('/api/auth/jwt', async (req, res) => {
       })
       .send({ success: true, user });
   } catch (error) {
-    res.status(500).send({ message: 'Failed to generate token', error: error.message });
+    res
+      .status(500)
+      .send({ message: 'Failed to generate token', error: error.message });
   }
 });
 
@@ -295,11 +328,14 @@ app.get('/api/services', async (req, res) => {
 });
 
 app.get('/api/admin/services', verifyToken, verifyAdmin, async (req, res) => {
-  const services = await servicesCollection.find().sort({ createdAt: -1 }).toArray();
+  const services = await servicesCollection
+    .find()
+    .sort({ createdAt: -1 })
+    .toArray();
   res.send(services);
 });
 
-app.get('/api/services/:id', verifyToken, async (req, res) => {
+app.get('/api/services/:id', async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
@@ -317,19 +353,33 @@ app.get('/api/services/:id', verifyToken, async (req, res) => {
 
 app.post('/api/services', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    const { serviceName, category, description, price, duration, image, status } = req.body;
+    const {
+      serviceName,
+      title,
+      name,
+      category,
+      description,
+      price,
+      duration,
+      image,
+      status,
+    } = req.body;
+    const finalName = serviceName || title || name;
 
-    if (!serviceName || !category || !image || Number(price) <= 0 || Number(duration) <= 0) {
-      return res.status(400).send({ message: 'Invalid service data. Price and duration must be positive.' });
+    if (!finalName || !category || Number(price) <= 0 || Number(duration) <= 0) {
+      return res.status(400).send({
+        message:
+          'Invalid service data. Name, category, positive price and duration are required.',
+      });
     }
 
     const newService = {
-      serviceName,
+      serviceName: finalName,
       category,
-      description,
+      description: description || '',
       price: Number(price),
       duration: Number(duration),
-      image,
+      image: image || '',
       status: status || 'active',
       createdAt: new Date(),
     };
@@ -344,20 +394,32 @@ app.post('/api/services', verifyToken, verifyAdmin, async (req, res) => {
 app.patch('/api/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ message: 'Invalid ID' });
+    if (!ObjectId.isValid(id))
+      return res.status(400).send({ message: 'Invalid ID' });
 
-    const { serviceName, category, description, price, duration, image, status } = req.body;
+    const {
+      serviceName,
+      title,
+      category,
+      description,
+      price,
+      duration,
+      image,
+      status,
+    } = req.body;
     const updateFields = {};
 
-    if (serviceName) updateFields.serviceName = serviceName;
+    if (serviceName || title) updateFields.serviceName = serviceName || title;
     if (category) updateFields.category = category;
     if (description !== undefined) updateFields.description = description;
     if (price !== undefined) {
-      if (Number(price) <= 0) return res.status(400).send({ message: 'Price must be positive' });
+      if (Number(price) <= 0)
+        return res.status(400).send({ message: 'Price must be positive' });
       updateFields.price = Number(price);
     }
     if (duration !== undefined) {
-      if (Number(duration) <= 0) return res.status(400).send({ message: 'Duration must be positive' });
+      if (Number(duration) <= 0)
+        return res.status(400).send({ message: 'Duration must be positive' });
       updateFields.duration = Number(duration);
     }
     if (image) updateFields.image = image;
@@ -376,9 +438,12 @@ app.patch('/api/services/:id', verifyToken, verifyAdmin, async (req, res) => {
 app.delete('/api/services/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ message: 'Invalid ID' });
+    if (!ObjectId.isValid(id))
+      return res.status(400).send({ message: 'Invalid ID' });
 
-    const result = await servicesCollection.deleteOne({ _id: new ObjectId(id) });
+    const result = await servicesCollection.deleteOne({
+      _id: new ObjectId(id),
+    });
     res.send(result);
   } catch (error) {
     res.status(500).send({ message: 'Failed to delete service' });
@@ -390,35 +455,47 @@ app.delete('/api/services/:id', verifyToken, verifyAdmin, async (req, res) => {
 // ==========================================
 app.post('/api/appointments', verifyToken, verifyCustomer, async (req, res) => {
   try {
-    const { serviceId, appointmentDate, timeSlot, message } = req.body;
+    const { serviceId, appointmentDate, date, timeSlot, time, message, notes } =
+      req.body;
+    const finalDate = appointmentDate || date;
+    const finalTime = timeSlot || time;
 
-    if (!ObjectId.isValid(serviceId)) {
-      return res.status(400).send({ message: 'Invalid Service ID' });
+    if (!ObjectId.isValid(serviceId) || !finalDate || !finalTime) {
+      return res
+        .status(400)
+        .send({ message: 'Valid service, date, and time slot are required.' });
     }
 
-    const service = await servicesCollection.findOne({ _id: new ObjectId(serviceId) });
+    const service = await servicesCollection.findOne({
+      _id: new ObjectId(serviceId),
+    });
     if (!service || service.status !== 'active') {
-      return res.status(400).send({ message: 'This service is currently unavailable for booking.' });
+      return res
+        .status(400)
+        .send({ message: 'This service is currently unavailable for booking.' });
     }
 
     const conflict = await appointmentsCollection.findOne({
-      appointmentDate,
-      timeSlot,
+      appointmentDate: finalDate,
+      timeSlot: finalTime,
       status: { $in: ['pending', 'confirmed'] },
     });
 
     if (conflict) {
       return res.status(409).send({
-        message: 'This time slot is already booked. Please choose another time.',
+        message:
+          'This time slot is already booked. Please choose another time.',
       });
     }
 
     const newAppointment = {
       serviceId: new ObjectId(serviceId),
       customerId: req.user._id,
-      appointmentDate,
-      timeSlot,
-      message: message || '',
+      customerEmail: req.user.email,
+      customerName: req.user.name,
+      appointmentDate: finalDate,
+      timeSlot: finalTime,
+      message: message || notes || '',
       servicePrice: service.price,
       paymentStatus: 'unpaid',
       status: 'pending',
@@ -436,7 +513,14 @@ app.get('/api/appointments/my', verifyToken, verifyCustomer, async (req, res) =>
   try {
     const appointments = await appointmentsCollection
       .aggregate([
-        { $match: { customerId: req.user._id } },
+        {
+          $match: {
+            $or: [
+              { customerId: req.user._id },
+              { customerEmail: req.user.email },
+            ],
+          },
+        },
         {
           $lookup: {
             from: 'services',
@@ -456,220 +540,355 @@ app.get('/api/appointments/my', verifyToken, verifyCustomer, async (req, res) =>
   }
 });
 
-app.patch('/api/appointments/:id/cancel', verifyToken, verifyCustomer, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const appointment = await appointmentsCollection.findOne({
-      _id: new ObjectId(id),
-      customerId: req.user._id,
-    });
-
-    if (!appointment) {
-      return res.status(404).send({ message: 'Appointment not found' });
-    }
-
-    if (appointment.status !== 'pending') {
-      return res.status(400).send({
-        message: 'Only pending appointments can be cancelled.',
+app.patch(
+  '/api/appointments/:id/cancel',
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const appointment = await appointmentsCollection.findOne({
+        _id: new ObjectId(id),
+        $or: [{ customerId: req.user._id }, { customerEmail: req.user.email }],
       });
+
+      if (!appointment) {
+        return res.status(404).send({ message: 'Appointment not found' });
+      }
+
+      if (appointment.status !== 'pending') {
+        return res.status(400).send({
+          message: 'Only pending appointments can be cancelled.',
+        });
+      }
+
+      const result = await appointmentsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: 'cancelled' } }
+      );
+      res.send(result);
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to cancel appointment' });
     }
-
-    const result = await appointmentsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { status: 'cancelled' } }
-    );
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ message: 'Failed to cancel appointment' });
   }
-});
+);
 
-app.get('/api/admin/appointments', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const appointments = await appointmentsCollection
-      .aggregate([
-        {
-          $addFields: {
-            customerObjectId: { $toObjectId: '$customerId' },
+app.get(
+  '/api/admin/appointments',
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const appointments = await appointmentsCollection
+        .aggregate([
+          {
+            $lookup: {
+              from: 'services',
+              localField: 'serviceId',
+              foreignField: '_id',
+              as: 'service',
+            },
           },
-        },
-        {
-          $lookup: {
-            from: 'services',
-            localField: 'serviceId',
-            foreignField: '_id',
-            as: 'service',
+          {
+            $lookup: {
+              from: 'user',
+              localField: 'customerEmail',
+              foreignField: 'email',
+              as: 'customer',
+            },
           },
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'customerObjectId',
-            foreignField: '_id',
-            as: 'customer',
-          },
-        },
-        { $unwind: { path: '$service', preserveNullAndEmptyArrays: true } },
-        { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
-        { $sort: { createdAt: -1 } },
-      ])
-      .toArray();
+          { $unwind: { path: '$service', preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
+          { $sort: { createdAt: -1 } },
+        ])
+        .toArray();
 
-    res.send(appointments);
-  } catch (error) {
-    res.status(500).send({ message: 'Failed to fetch all appointments' });
-  }
-});
-
-app.patch('/api/admin/appointments/:id/status', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!['confirmed', 'cancelled'].includes(status)) {
-      return res.status(400).send({ message: 'Invalid status' });
+      res.send(appointments);
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to fetch all appointments' });
     }
-
-    const appointment = await appointmentsCollection.findOne({ _id: new ObjectId(id) });
-    if (!appointment) return res.status(404).send({ message: 'Appointment not found' });
-
-    if (status === 'confirmed' && appointment.status !== 'pending') {
-      return res.status(400).send({ message: 'Only pending appointments can be confirmed.' });
-    }
-
-    const result = await appointmentsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { status } }
-    );
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ message: 'Failed to update appointment status' });
   }
-});
+);
+
+app.patch(
+  '/api/admin/appointments/:id/status',
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!['confirmed', 'cancelled'].includes(status)) {
+        return res.status(400).send({ message: 'Invalid status' });
+      }
+
+      const appointment = await appointmentsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      if (!appointment)
+        return res.status(404).send({ message: 'Appointment not found' });
+
+      if (status === 'confirmed' && appointment.status !== 'pending') {
+        return res
+          .status(400)
+          .send({ message: 'Only pending appointments can be confirmed.' });
+      }
+
+      const result = await appointmentsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+      res.send(result);
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to update appointment status' });
+    }
+  }
+);
 
 // ==========================================
 // 6. STRIPE PAYMENT & TRANSACTIONS ROUTES
 // ==========================================
-app.post('/api/payments/create-checkout-session', verifyToken, verifyCustomer, async (req, res) => {
-  try {
-    const { appointmentId } = req.body;
-    const appointment = await appointmentsCollection.findOne({
-      _id: new ObjectId(appointmentId),
-      customerId: req.user._id,
-    });
+app.post(
+  '/api/payments/create-checkout-session',
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const { appointmentId } = req.body;
+      const appointment = await appointmentsCollection.findOne({
+        _id: new ObjectId(appointmentId),
+        $or: [{ customerId: req.user._id }, { customerEmail: req.user.email }],
+      });
 
-    if (!appointment) {
-      return res.status(404).send({ message: 'Appointment not found' });
-    }
-    if (appointment.status !== 'confirmed') {
-      return res.status(400).send({ message: 'You can only pay for confirmed appointments.' });
-    }
-    if (appointment.paymentStatus === 'paid') {
-      return res.status(400).send({ message: 'This appointment is already paid.' });
-    }
+      if (!appointment) {
+        return res.status(404).send({ message: 'Appointment not found' });
+      }
+      if (appointment.paymentStatus === 'paid') {
+        return res
+          .status(400)
+          .send({ message: 'This appointment is already paid.' });
+      }
 
-    const service = await servicesCollection.findOne({ _id: appointment.serviceId });
+      const service = await servicesCollection.findOne({
+        _id: appointment.serviceId,
+      });
+      const frontendOrigin = (
+        process.env.CLIENT_URL || 'http://localhost:3000'
+      )
+        .split(',')[0]
+        .trim();
 
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'payment',
-      customer_email: req.user.email,
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: service?.serviceName || 'Salon Service',
-              description: `Appointment on ${appointment.appointmentDate} at ${appointment.timeSlot}`,
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        mode: 'payment',
+        customer_email: req.user.email,
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: service?.serviceName || 'Salon Service',
+                description: `Appointment on ${appointment.appointmentDate} at ${appointment.timeSlot}`,
+              },
+              unit_amount: Math.round(appointment.servicePrice * 100),
             },
-            unit_amount: Math.round(appointment.servicePrice * 100),
+            quantity: 1,
           },
-          quantity: 1,
+        ],
+        metadata: {
+          appointmentId: appointment._id.toString(),
+          customerId: req.user._id,
         },
-      ],
-      metadata: {
-        appointmentId: appointment._id.toString(),
-        customerId: req.user._id,
-      },
-      success_url: `${process.env.CLIENT_URL}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL}/dashboard/payment-cancel`,
-    });
+        success_url: `${frontendOrigin}/payment/success?session_id={CHECKOUT_SESSION_ID}&appointmentId=${appointment._id.toString()}`,
+        cancel_url: `${frontendOrigin}/dashboard/customer`,
+      });
 
-    res.send({ url: session.url });
-  } catch (error) {
-    res.status(500).send({ message: 'Stripe session error', error: error.message });
+      res.send({ url: session.url });
+    } catch (error) {
+      res
+        .status(500)
+        .send({ message: 'Stripe session error', error: error.message });
+    }
   }
-});
+);
 
-// Payment Success Page-এ ট্রানজেকশন ডিটেইলস দেখানোর জন্য (Read-only)
-app.get('/api/payments/session/:sessionId', verifyToken, verifyCustomer, async (req, res) => {
+app.post('/api/payments/confirm', verifyToken, async (req, res) => {
   try {
-    const { sessionId } = req.params;
-    const transaction = await transactionsCollection.findOne({
-      stripeSessionId: sessionId,
-      customerId: req.user._id,
-    });
+    const { sessionId, appointmentId } = req.body;
+    if (!sessionId)
+      return res.status(400).send({ message: 'Session ID required' });
 
-    if (!transaction) {
-      return res.status(404).send({
-        message: 'Payment confirmation is still processing or session not found.',
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== 'paid') {
+      return res.status(400).send({ message: 'Payment not completed yet' });
+    }
+
+    const targetId = appointmentId || session.metadata?.appointmentId;
+    if (targetId && ObjectId.isValid(targetId)) {
+      await appointmentsCollection.updateOne(
+        { _id: new ObjectId(targetId) },
+        {
+          $set: {
+            status: 'confirmed',
+            paymentStatus: 'paid',
+            stripeSessionId: session.id,
+          },
+        }
+      );
+    }
+
+    const existingTx = await transactionsCollection.findOne({
+      stripeSessionId: session.id,
+    });
+    if (!existingTx && targetId) {
+      await transactionsCollection.insertOne({
+        appointmentId: new ObjectId(targetId),
+        customerId: req.user._id,
+        customerEmail: req.user.email,
+        amount: session.amount_total / 100,
+        currency: session.currency.toUpperCase(),
+        stripeSessionId: session.id,
+        status: 'paid',
+        createdAt: new Date(),
       });
     }
 
-    res.send(transaction);
+    res.send({ success: true, status: 'confirmed' });
   } catch (error) {
-    res.status(500).send({ message: 'Failed to retrieve payment session' });
+    res.status(500).send({ message: 'Failed to confirm payment' });
   }
 });
 
-app.get('/api/admin/transactions', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const transactions = await transactionsCollection
-      .aggregate([
-        {
-          $addFields: {
-            customerObjectId: { $toObjectId: '$customerId' },
-          },
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'customerObjectId',
-            foreignField: '_id',
-            as: 'customer',
-          },
-        },
-        {
-          $lookup: {
-            from: 'appointments',
-            localField: 'appointmentId',
-            foreignField: '_id',
-            as: 'appointment',
-          },
-        },
-        { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
-        { $unwind: { path: '$appointment', preserveNullAndEmptyArrays: true } },
-        {
-          $lookup: {
-            from: 'services',
-            localField: 'appointment.serviceId',
-            foreignField: '_id',
-            as: 'service',
-          },
-        },
-        { $unwind: { path: '$service', preserveNullAndEmptyArrays: true } },
-        { $sort: { createdAt: -1 } },
-      ])
-      .toArray();
+app.get(
+  '/api/payments/session/:sessionId',
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const transaction = await transactionsCollection.findOne({
+        stripeSessionId: sessionId,
+        $or: [{ customerId: req.user._id }, { customerEmail: req.user.email }],
+      });
 
-    res.send(transactions);
+      if (!transaction) {
+        return res.status(404).send({
+          message:
+            'Payment confirmation is still processing or session not found.',
+        });
+      }
+
+      res.send(transaction);
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to retrieve payment session' });
+    }
+  }
+);
+
+app.get(
+  '/api/admin/transactions',
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const transactions = await transactionsCollection
+        .aggregate([
+          {
+            $lookup: {
+              from: 'user',
+              localField: 'customerEmail',
+              foreignField: 'email',
+              as: 'customer',
+            },
+          },
+          {
+            $lookup: {
+              from: 'appointments',
+              localField: 'appointmentId',
+              foreignField: '_id',
+              as: 'appointment',
+            },
+          },
+          { $unwind: { path: '$customer', preserveNullAndEmptyArrays: true } },
+          {
+            $unwind: {
+              path: '$appointment',
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $lookup: {
+              from: 'services',
+              localField: 'appointment.serviceId',
+              foreignField: '_id',
+              as: 'service',
+            },
+          },
+          { $unwind: { path: '$service', preserveNullAndEmptyArrays: true } },
+          { $sort: { createdAt: -1 } },
+        ])
+        .toArray();
+
+      res.send(transactions);
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to load transactions' });
+    }
+  }
+);
+
+// ==========================================
+// 7. VERIFIED REVIEWS ROUTES
+// ==========================================
+app.get('/api/reviews/:serviceId', async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const reviews = await reviewsCollection
+      .find({ serviceId })
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.send(reviews);
   } catch (error) {
-    res.status(500).send({ message: 'Failed to load transactions' });
+    res.status(500).send({ message: 'Failed to load reviews' });
+  }
+});
+
+app.post('/api/reviews', verifyToken, verifyCustomer, async (req, res) => {
+  try {
+    const { serviceId, appointmentId, rating, comment } = req.body;
+    if (!serviceId || !rating || !comment) {
+      return res
+        .status(400)
+        .send({ message: 'Service, rating, and comment are required.' });
+    }
+
+    const review = {
+      serviceId,
+      appointmentId: appointmentId || null,
+      userId: req.user._id,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      rating: Math.min(5, Math.max(1, Number(rating))),
+      comment: comment.trim(),
+      createdAt: new Date(),
+    };
+
+    const result = await reviewsCollection.insertOne(review);
+    if (appointmentId && ObjectId.isValid(appointmentId)) {
+      await appointmentsCollection.updateOne(
+        { _id: new ObjectId(appointmentId) },
+        { $set: { isReviewed: true } }
+      );
+    }
+
+    res.status(201).send(result);
+  } catch (error) {
+    res.status(500).send({ message: 'Failed to submit review' });
   }
 });
 
 // ==========================================
-// 7. ADMIN USER MANAGEMENT & DASHBOARD STATS
+// 8. ADMIN USER MANAGEMENT & DASHBOARD STATS
 // ==========================================
 app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   const users = await usersCollection
@@ -679,29 +898,45 @@ app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   res.send(users);
 });
 
-app.patch('/api/admin/users/:id/block', verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { isBlocked } = req.body;
+app.patch(
+  '/api/admin/users/:id/block',
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isBlocked } = req.body;
+      const query = ObjectId.isValid(id)
+        ? { $or: [{ _id: new ObjectId(id) }, { id }] }
+        : { id };
 
-    const result = await usersCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { isBlocked: Boolean(isBlocked) } }
-    );
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ message: 'Failed to update user status' });
+      const result = await usersCollection.updateOne(query, {
+        $set: { isBlocked: Boolean(isBlocked) },
+      });
+      res.send(result);
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to update user status' });
+    }
   }
-});
+);
 
 app.get('/api/admin/stats', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    const totalCustomers = await usersCollection.countDocuments({ role: 'customer' });
-    const activeServices = await servicesCollection.countDocuments({ status: 'active' });
+    const totalCustomers = await usersCollection.countDocuments({
+      role: 'customer',
+    });
+    const activeServices = await servicesCollection.countDocuments({
+      status: 'active',
+    });
     const totalAppointments = await appointmentsCollection.countDocuments();
-    const pendingAppointments = await appointmentsCollection.countDocuments({ status: 'pending' });
-    const confirmedAppointments = await appointmentsCollection.countDocuments({ status: 'confirmed' });
-    const totalSuccessfulPayments = await transactionsCollection.countDocuments({ status: 'paid' });
+    const pendingAppointments = await appointmentsCollection.countDocuments({
+      status: 'pending',
+    });
+    const confirmedAppointments = await appointmentsCollection.countDocuments({
+      status: 'confirmed',
+    });
+    const totalSuccessfulPayments =
+      await transactionsCollection.countDocuments({ status: 'paid' });
 
     res.send({
       totalCustomers,
@@ -716,22 +951,39 @@ app.get('/api/admin/stats', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/customer/stats', verifyToken, verifyCustomer, async (req, res) => {
-  try {
-    const filter = { customerId: req.user._id };
-    const totalRequests = await appointmentsCollection.countDocuments(filter);
-    const pending = await appointmentsCollection.countDocuments({ ...filter, status: 'pending' });
-    const confirmed = await appointmentsCollection.countDocuments({ ...filter, status: 'confirmed' });
-    const cancelled = await appointmentsCollection.countDocuments({ ...filter, status: 'cancelled' });
+app.get(
+  '/api/customer/stats',
+  verifyToken,
+  verifyCustomer,
+  async (req, res) => {
+    try {
+      const filter = {
+        $or: [{ customerId: req.user._id }, { customerEmail: req.user.email }],
+      };
+      const totalRequests =
+        await appointmentsCollection.countDocuments(filter);
+      const pending = await appointmentsCollection.countDocuments({
+        ...filter,
+        status: 'pending',
+      });
+      const confirmed = await appointmentsCollection.countDocuments({
+        ...filter,
+        status: 'confirmed',
+      });
+      const cancelled = await appointmentsCollection.countDocuments({
+        ...filter,
+        status: 'cancelled',
+      });
 
-    res.send({ totalRequests, pending, confirmed, cancelled });
-  } catch (error) {
-    res.status(500).send({ message: 'Failed to load customer stats' });
+      res.send({ totalRequests, pending, confirmed, cancelled });
+    } catch (error) {
+      res.status(500).send({ message: 'Failed to load customer stats' });
+    }
   }
-});
+);
 
 // ==========================================
-// 8. GLOBAL 404 & ERROR HANDLER
+// 9. GLOBAL 404 & ERROR HANDLER
 // ==========================================
 app.get('/', (req, res) => {
   res.send('SalonBook Server is running!');
@@ -744,4 +996,5 @@ app.use((req, res) => {
 app.listen(port, () => {
   console.log(`SalonBook Server listening on port ${port}`);
 });
+
 module.exports = app;
